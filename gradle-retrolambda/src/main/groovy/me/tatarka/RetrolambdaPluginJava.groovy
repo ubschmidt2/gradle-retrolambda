@@ -38,38 +38,41 @@ public class RetrolambdaPluginJava implements Plugin<Project> {
 
             javaPlugin.sourceSets.all { SourceSet set ->
                 if (retrolambda.isIncluded(set.name)) {
-                    def name = RetrolambdaUtil.capitalize(set.name)
-                    def taskName = "compileRetrolambda$name"
-                    def oldOutputDir = set.output.classesDir
-                    def newOutputDir = project.file("$project.buildDir/retrolambda/$set.name")
+                    set.output.classesDirs.each { oldOutputDir ->
+                        def lang = RetrolambdaUtil.capitalize(oldOutputDir.absolutePath.replaceFirst("^.*/(.*)/.*", "\$1"))
+                        def name = RetrolambdaUtil.capitalize(set.name)
+                        def taskName = "compileRetrolambda${lang}${name}"
+                        def newOutputDir = new File(oldOutputDir.absolutePath.replaceFirst("^.*/(.*/.*)",
+                                                    "${project.buildDir}/retrolambda/\$1"))
 
-                    def compileJavaTask = project.tasks.getByName(set.compileJavaTaskName) as JavaCompile
-                    compileJavaTask.destinationDir = newOutputDir
+                        def compileJavaTask = project.tasks.getByName(set.compileJavaTaskName) as JavaCompile
+                        compileJavaTask.destinationDir = newOutputDir
 
-                    def retrolambdaTask = project.task(taskName, dependsOn: compileJavaTask, type: RetrolambdaTask) { Task task ->
-                        RetrolambdaTask t = task as RetrolambdaTask
-                        t.inputDir = newOutputDir
-                        t.outputDir = oldOutputDir
-                        t.classpath = set.compileClasspath + project.files(newOutputDir)
-                        t.javaVersion = retrolambda.javaVersion
-                        t.jvmArgs = retrolambda.jvmArgs
-                        t.enabled = !set.allJava.isEmpty()
-                    }
-
-                    // enable retrolambdaTask dynamically, based on up-to-date source set before running 
-                    project.gradle.taskGraph.beforeTask { Task task ->
-                        if (task == retrolambdaTask) {
-                            retrolambdaTask.setEnabled(!set.allJava.isEmpty())
+                        def retrolambdaTask = project.task(taskName, dependsOn: compileJavaTask, type: RetrolambdaTask) { Task task ->
+                            RetrolambdaTask t = task as RetrolambdaTask
+                            t.inputDir = newOutputDir
+                            t.outputDir = oldOutputDir
+                            t.classpath = set.compileClasspath + project.files(newOutputDir)
+                            t.javaVersion = retrolambda.javaVersion
+                            t.jvmArgs = retrolambda.jvmArgs
+                            t.enabled = !set.allJava.isEmpty()
                         }
-                    }
 
-                    project.tasks.findByName(set.classesTaskName).dependsOn(retrolambdaTask)
+                        // enable retrolambdaTask dynamically, based on up-to-date source set before running 
+                        project.gradle.taskGraph.beforeTask { Task task ->
+                            if (task == retrolambdaTask) {
+                                retrolambdaTask.setEnabled(!set.allJava.isEmpty())
+                            }
+                        }
 
-                    if (!retrolambda.onJava8) {
-                        // Set JDK 8 for compiler task
-                        compileJavaTask.doFirst {
-                            compileJavaTask.options.fork = true
-                            compileJavaTask.options.forkOptions.executable = "${retrolambda.tryGetJdk()}/bin/javac"
+                        project.tasks.findByName(set.classesTaskName).dependsOn(retrolambdaTask)
+
+                        if (!retrolambda.onJava8) {
+                            // Set JDK 8 for compiler task
+                            compileJavaTask.doFirst {
+                                compileJavaTask.options.fork = true
+                                compileJavaTask.options.forkOptions.executable = "${retrolambda.tryGetJdk()}/bin/javac"
+                            }
                         }
                     }
                 }
